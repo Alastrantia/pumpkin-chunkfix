@@ -1,0 +1,32 @@
+diff --git a/crates/pumpkin-core/src/entity/player.rs b/crates/pumpkin-core/src/entity/player.rs
+index c254be7..d735b47 100644
+--- a/crates/pumpkin-core/src/entity/player.rs
++++ b/crates/pumpkin-core/src/entity/player.rs
+@@ -4241,6 +4241,11 @@ impl Player {
+         self.living_entity.entity.set_pos(position);
+         let entity = &self.living_entity.entity;
+         entity.set_rotation(yaw, pitch);
++        // chunkfix: a teleport must re-centre the watched chunks, otherwise nothing loads at the target until the
++        // player walks across a chunk border (and then only the difference is sent)
++        if let Some(player_arc) = self.world().get_player_by_uuid(self.gameprofile.id) {
++            crate::world::chunker::update_position(&player_arc);
++        }
+         match self.client.as_ref() {
+             ClientPlatform::Java(client) => {
+                 *self
+diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
+index 9715594..4e0148f 100644
+--- a/crates/pumpkin-core/src/world/mod.rs
++++ b/crates/pumpkin-core/src/world/mod.rs
+@@ -4187,6 +4187,11 @@ impl World {
+         }
+ 
+         // Send respawn packet with target dimension (using send_packet_now to ensure proper order)
++        // chunkfix: a respawn makes the client drop every chunk (always for Via-translated old clients), so forget
++        // what was sent and let send_world_info -> chunker send the whole view again (vanilla does the same)
++        if target_world.uuid == self.uuid {
++            player.unload_watched_chunks(self).await;
++        }
+         player
+             .send_client_packet(&CRespawn::new(
+                 PlayerSpawnData::new(

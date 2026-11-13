@@ -1,0 +1,37 @@
+name: build
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Pumpkin 0.2.1
+        run: git clone --depth 1 --branch '0.2.1+26.3-26.51' https://github.com/Pumpkin-MC/Pumpkin src
+      - name: Apply patches
+        run: cd src && for p in ../patches/*.patch; do git apply --verbose "$p"; done
+      - name: Toolchain (musl, like the upstream release build)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+          rustup update stable && rustup default stable
+          rustup target add aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      - name: Build
+        working-directory: src
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: cargo build --release --target aarch64-unknown-linux-musl --bin pumpkin
+      - name: Package
+        run: |
+          mkdir dist
+          cp src/target/aarch64-unknown-linux-musl/release/pumpkin dist/pumpkin-ARM64-Linux-musl-chunkfix
+          file dist/* ; (cd dist && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pumpkin-ARM64-Linux-musl-chunkfix
+          path: dist/
